@@ -1,0 +1,22 @@
+# Configuración mínima de Tempo en modo "single binary" con almacenamiento local.
+# Recibe trazas OTLP por gRPC/HTTP en los puertos 4317/4318 (los usa el
+# OpenTelemetry Collector como exporter).
+server:
+  http_listen_port: 3200
+
+distributor:
+  receivers:
+    otlp:
+      protocols:
+        grpc:
+          endpoint: 0.0.0.0:4317
+        http:
+          endpoint: 0.0.0.0:4318
+
+storage:
+  trace:
+    backend: local
+    wal:
+      path: /var/tempo/wal
+    local:
+      path: /var/tempo/traces

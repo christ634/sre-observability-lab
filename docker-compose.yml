@@ -1,0 +1,132 @@
+name: sre-observability
+
+services:
+  # ------------------- App demo instrumentada -------------------
+  app:
+    build: ./app
+    container_name: demo-api
+    environment:
+      # OpenTelemetry: trazas salen por OTLP hacia el collector
+      OTEL_SERVICE_NAME: demo-api
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4317
+      OTEL_TRACES_EXPORTER: otlp
+      OTEL_METRICS_EXPORTER: none
+      OTEL_LOGS_EXPORTER: none
+      OTEL_RESOURCE_ATTRIBUTES: deployment.environment=local,service.version=1.0.0
+      # Probabilidades de fallo inyectado (ajustá para jugar con el SLO)
+      FAIL_RATE_ITEMS: "0.02"
+      FAIL_RATE_SEARCH: "0.04"
+      FAIL_RATE_CHECKOUT: "0.08"
+    ports:
+      - "8000:8000"
+    volumes:
+      - app_logs:/var/log/app
+    networks: [obs]
+
+  # ------------------- Generador de tráfico -------------------
+  loadgen:
+    build: ./loadgen
+    container_name: loadgen
+    environment:
+      APP_URL: http://app:8000
+      RPS: "20"
+    depends_on:
+      - app
+    restart: unless-stopped
+    networks: [obs]
+
+  # ------------------- OpenTelemetry Collector -------------------
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.116.1
+    container_name: otel-collector
+    command: ["--config=/etc/otel/config.yaml"]
+    volumes:
+      - ./otel-collector/config.yaml:/etc/otel/config.yaml:ro
+    ports:
+      - "4317:4317"   # OTLP gRPC
+      - "4318:4318"   # OTLP HTTP
+    depends_on:
+      - tempo
+    networks: [obs]
+
+  # ------------------- Prometheus (métricas + reglas SLO) -------------------
+  prometheus:
+    image: prom/prometheus:v2.55.1
+    container_name: prometheus
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./prometheus/rules:/etc/prometheus/rules:ro
+      - prom_data:/prometheus
+    ports:
+      - "9090:9090"
+    networks: [obs]
+
+  # ------------------- Loki (almacenamiento de logs) -------------------
+  loki:
+    image: grafana/loki:3.3.2
+    container_name: loki
+    command: -config.file=/etc/loki/loki-config.yml
+    volumes:
+      - ./loki/loki-config.yml:/etc/loki/loki-config.yml:ro
+      - loki_data:/loki
+    ports:
+      - "3100:3100"
+    networks: [obs]
+
+  # ------------------- Promtail (recolector de logs) -------------------
+  promtail:
+    image: grafana/promtail:3.3.2
+    container_name: promtail
+    command: -config.file=/etc/promtail/promtail-config.yml
+    volumes:
+      - ./promtail/promtail-config.yml:/etc/promtail/promtail-config.yml:ro
+      - app_logs:/var/log/app:ro
+    depends_on:
+      - loki
+    networks: [obs]
+
+  # ------------------- Tempo (trazas) -------------------
+  tempo:
+    image: grafana/tempo:2.6.1
+    container_name: tempo
+    command: -config.file=/etc/tempo/tempo.yml
+    volumes:
+      - ./tempo/tempo.yml:/etc/tempo/tempo.yml:ro
+      - tempo_data:/var/tempo
+    ports:
+      - "3200:3200"
+    networks: [obs]
+
+  # ------------------- Grafana (visualización + alertas) -------------------
+  grafana:
+    image: grafana/grafana:11.4.0
+    container_name: grafana
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: admin
+      GF_USERS_ALLOW_SIGN_UP: "false"
+    volumes:
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafana_data:/var/lib/grafana
+    ports:
+      - "3000:3000"
+    depends_on:
+      - prometheus
+      - loki
+      - tempo
+    networks: [obs]
+
+volumes:
+  prom_data:
+  loki_data:
+  tempo_data:
+  grafana_data:
+  app_logs:
+
+networks:
+  obs:
+    driver: bridge

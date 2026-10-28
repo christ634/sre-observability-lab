@@ -1,0 +1,20 @@
+# Promtail: lee el archivo de logs de la app (volumen compartido) y lo
+# empuja a Loki. Las líneas vienen en formato key=value para poder
+# parsearlas en LogQL con el parser `logfmt`.
+server:
+  http_listen_port: 9080
+  grpc_listen_port: 0
+
+positions:
+  filename: /tmp/positions.yaml
+
+clients:
+  - url: http://loki:3100/loki/api/v1/push
+
+scrape_configs:
+  - job_name: demo-api
+    static_configs:
+      - targets: [localhost]
+        labels:
+          job: demo-api
+          __path__: /var/log/app/*.log

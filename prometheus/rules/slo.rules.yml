@@ -1,0 +1,80 @@
+# =============================================================================
+# Reglas de SLI/SLO para el servicio demo-api
+# =============================================================================
+#
+# SLI (Service Level Indicator):  ratio de errores 5xx / total de requests.
+# SLO (Service Level Objective):  99.5% de disponibilidad en ventana de 30 días.
+#                                  -> presupuesto de error = 1 - 0.995 = 0.5%
+#
+# Burn rate: cuántas veces MÁS RÁPIDO quemamos el presupuesto de error de lo
+# permitido.  burn_rate = error_ratio / (1 - SLO)
+#   * burn_rate = 1  -> quemamos el presupuesto exactamente a tiempo
+#   * burn_rate > 1  -> lo vamos a agotar antes de fin de ventana
+#
+# Thresholds del SRE Workbook de Google:
+#   * 14.4x sostenido 1h   -> se agota el presupuesto en ~2 días  (CRITICO)
+#   * 2x   sostenido 6h    -> se agota el presupuesto en ~15 días  (WARNING)
+# =============================================================================
+
+groups:
+  - name: slo-demo-api
+    interval: 30s
+    rules:
+      # ------------------ Recording rules: SLI por ventana ------------------
+      # error_ratio = errores 5xx / total. El `or vector(0)` evita dividir
+      # por cero cuando no hay tráfico (NaN -> 0).
+      - record: sli:demo_api:error_ratio:5m
+        expr: |
+          (sum(rate(http_requests_total{job="demo-api", status=~"5.."}[5m]))
+            / sum(rate(http_requests_total{job="demo-api"}[5m])))
+          > 0 or vector(0)
+
+      - record: sli:demo_api:error_ratio:1h
+        expr: |
+          (sum(rate(http_requests_total{job="demo-api", status=~"5.."}[1h]))
+            / sum(rate(http_requests_total{job="demo-api"}[1h])))
+          > 0 or vector(0)
+
+      - record: sli:demo_api:error_ratio:6h
+        expr: |
+          (sum(rate(http_requests_total{job="demo-api", status=~"5.."}[6h]))
+            / sum(rate(http_requests_total{job="demo-api"}[6h])))
+          > 0 or vector(0)
+
+      - record: sli:demo_api:error_ratio:30d
+        expr: |
+          (sum(rate(http_requests_total{job="demo-api", status=~"5.."}[30d]))
+            / sum(rate(http_requests_total{job="demo-api"}[30d])))
+          > 0 or vector(0)
+
+      # Disponibilidad real observada en 30 días (lo que se muestra en el dashboard)
+      - record: sli:demo_api:availability:30d
+        expr: 1 - sli:demo_api:error_ratio:30d
+
+      # ------------------ Recording rules: burn rate ------------------
+      - record: slo:demo_api:burn_rate:1h
+        expr: sli:demo_api:error_ratio:1h / (1 - 0.995)
+
+      - record: slo:demo_api:burn_rate:6h
+        expr: sli:demo_api:error_ratio:6h / (1 - 0.995)
+
+      # ------------------ Alertas (visibles en Prometheus /alerts) ------------------
+      - alert: DemoAPI_SLO_BurnRate_Critical
+        expr: slo:demo_api:burn_rate:1h > 14.4
+        for: 5m
+        labels:
+          severity: critical
+          team: platform
+        annotations:
+          summary: "demo-api: burn rate crítico ({{ $value | humanize }}x en 1h)"
+          description: "El error budget de 30 días se está agotando rápido. Al ritmo actual quedará en ~2 días."
+
+      - alert: DemoAPI_SLO_BurnRate_Warning
+        expr: slo:demo_api:burn_rate:6h > 2
+        for: 5m
+        labels:
+          severity: warning
+          team: platform
+        annotations:
+          summary: "demo-api: burn rate elevado ({{ $value | humanize }}x en 6h)"
+          description: "El error budget de 30 días se agota en ~15 días al ritmo actual."

@@ -1,0 +1,91 @@
+# =============================================================================
+# Alertas de SLO en Grafana (mismas reglas de burn rate que en Prometheus).
+# Quedan visibles en Alertas > Reglas de alerta y son notificables por Slack/email.
+# =============================================================================
+apiVersion: 1
+
+groups:
+  - orgId: 1
+    name: slo-demo-api
+    folder: SLO
+    interval: 1m
+    rules:
+      - uid: demoapi-slow-burn
+        title: "demo-api: SLO burn rate > 2x en 6h (warning)"
+        condition: B
+        for: 5m
+        noDataState: OK
+        execErrState: Error
+        labels:
+          severity: warning
+          team: platform
+        annotations:
+          summary: "demo-api quemando error budget a ritmo de 2x"
+          description: "Al ritmo actual el error budget de 30 días se agota en ~15 días."
+        data:
+          - refId: A
+            datasourceUid: prometheus
+            relativeTimeRange:
+              from: 360
+              to: 0
+            model:
+              expr: slo:demo_api:burn_rate:6h
+              instant: true
+              refId: A
+          - refId: B
+            datasourceUid: __expr__
+            model:
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator:
+                    type: gt
+                    params: [2]
+                  operator:
+                    type: and
+                  query:
+                    params: [A]
+                  reducer:
+                    type: last
+                  type: query
+              refId: B
+
+      - uid: demoapi-critical-burn
+        title: "demo-api: SLO burn rate > 14.4x en 1h (critical)"
+        condition: B
+        for: 5m
+        noDataState: OK
+        execErrState: Error
+        labels:
+          severity: critical
+          team: platform
+        annotations:
+          summary: "demo-api quemando error budget a ritmo de 14.4x"
+          description: "Al ritmo actual el error budget de 30 días se agota en ~2 días."
+        data:
+          - refId: A
+            datasourceUid: prometheus
+            relativeTimeRange:
+              from: 360
+              to: 0
+            model:
+              expr: slo:demo_api:burn_rate:1h
+              instant: true
+              refId: A
+          - refId: B
+            datasourceUid: __expr__
+            model:
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator:
+                    type: gt
+                    params: [14.4]
+                  operator:
+                    type: and
+                  query:
+                    params: [A]
+                  reducer:
+                    type: last
+                  type: query
+              refId: B

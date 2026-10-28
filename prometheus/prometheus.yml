@@ -1,0 +1,25 @@
+global:
+  scrape_interval: 5s
+  evaluation_interval: 15s
+  external_labels:
+    cluster: local
+    environment: dev
+
+# Reglas de grabación (recording rules) y alertas (alerting rules)
+rule_files:
+  - /etc/prometheus/rules/*.yml
+
+scrape_configs:
+  - job_name: prometheus
+    static_configs:
+      - targets: ["localhost:9090"]
+
+  # La app demo expone /metrics en formato Prometheus (modelo pull)
+  - job_name: demo-api
+    static_configs:
+      - targets: ["app:8000"]
+
+  # El OpenTelemetry Collector expone las métricas OTLP que recibe
+  - job_name: otel-collector
+    static_configs:
+      - targets: ["otel-collector:8889"]

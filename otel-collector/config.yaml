@@ -1,0 +1,47 @@
+# =============================================================================
+# OpenTelemetry Collector - recibe telemetría por OTLP y la enruta:
+#   * trazas  -> Tempo
+#   * métricas-> (el exporter prometheus las expone en :8889 para que
+#                 Prometheus las raspe) - actualmente la app usa pull directo
+#   * logs    -> Loki (pipeline de ejemplo; la app hoy usa Promtail)
+# =============================================================================
+
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+      http:
+        endpoint: 0.0.0.0:4318
+
+processors:
+  batch:
+    # Junta señales y las envía en lotes para reducir carga de red
+
+exporters:
+  debug:
+    verbosity: basic
+  prometheus:
+    endpoint: 0.0.0.0:8889
+    namespace: otel
+  otlp/tempo:
+    endpoint: tempo:4317
+    tls:
+      insecure: true
+  loki:
+    endpoint: http://loki:3100/loki/api/v1/push
+
+service:
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [batch]
+      exporters: [debug, otlp/tempo]
+    metrics:
+      receivers: [otlp]
+      processors: [batch]
+      exporters: [debug, prometheus]
+    logs:
+      receivers: [otlp]
+      processors: [batch]
+      exporters: [debug, loki]
